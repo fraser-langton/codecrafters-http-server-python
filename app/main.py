@@ -1,3 +1,4 @@
+import asyncio
 import socket
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -32,31 +33,44 @@ class Response:
         return f"{self.version} {self.status} {self.message}\r\n{headers}\r\n\r\n{self.body or ''}".encode()
 
 
-def main():
+async def handler(client_socket):
+    loop = asyncio.get_running_loop()
+    try:
+        data = await loop.sock_recv(client_socket, 1024)
+        if not data:
+            return
+
+        request = parse_request(data)
+        print("Got request", request)
+        path_parts = request.path_parts
+        match path_parts:
+            case ("", ""):
+                response = Response("HTTP/1.1", 200, "OK", [], "")
+            case ("", "echo", var):
+                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], var)
+            case ("", "user-agent"):
+                headers = dict(request.headers)
+                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
+            case _:
+                response = Response("HTTP/1.1", 404, "Not Found", [], "")
+
+        print("Sending response", response)
+        await loop.sock_sendall(client_socket, response.raw())
+    finally:
+        client_socket.close()
+
+
+async def main():
     server_socket = socket.create_server(("localhost", 4221), reuse_port=False)
-    conn, addr = server_socket.accept()
+    server_socket.setblocking(False)
+    loop = asyncio.get_running_loop()
 
-    with conn:
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-
-            request = parse_request(data)
-            print("Got request", request)
-            path_parts = request.path_parts
-            match path_parts:
-                case ("", ""):
-                    response = Response("HTTP/1.1", 200, "OK", [], "")
-                case ("", "echo", var):
-                    response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], var)
-                case ("", "user-agent"):
-                    headers = dict(request.headers)
-                    response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
-                case _:
-                    response = Response("HTTP/1.1", 404, "Not Found", [], "")
-            print("Sending response", response)
-            conn.sendall(response.raw())
+    while True:
+        # wait until client connects, note we're still accepting clients synchronously
+        client_socket, _ = await loop.sock_accept(server_socket)
+        client_socket.setblocking(False)
+        # handle the request asynchronously, pass the client socket to handler to handle i/o main loop
+        asyncio.create_task(handler(client_socket))
 
 
 def parse_request(raw_request: bytes) -> Request:
@@ -78,4 +92,4 @@ def parse_request(raw_request: bytes) -> Request:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
