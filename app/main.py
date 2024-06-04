@@ -45,6 +45,11 @@ def read_file(filename: str):
     return path.read_text()
 
 
+def write_file(filename: str, content: str):
+    path = App.directory / filename
+    path.write_text(content)
+
+
 async def handler(client_socket):
     loop = asyncio.get_running_loop()
     try:
@@ -55,20 +60,23 @@ async def handler(client_socket):
         request = parse_request(data)
         print("Got request", request)
         path_parts = request.path_parts
-        match path_parts:
-            case ("", ""):
+        match (request.method, path_parts):
+            case "GET", ("", ""):
                 response = Response("HTTP/1.1", 200, "OK", [], "")
-            case ("", "echo", var):
+            case "GET", ("", "echo", var):
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], var)
-            case ("", "user-agent"):
+            case "GET", ("", "user-agent"):
                 headers = dict(request.headers)
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
-            case ("", "files", filename):
+            case "GET", ("", "files", filename):
                 try:
                     content = read_file(filename)
                     response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "application/octet-stream")], content)
                 except FileNotFoundError:
                     response = Response("HTTP/1.1", 404, "Not Found", [], "")
+            case "POST", ("", "files", filename):
+                write_file(filename, request.body)
+                response = Response("HTTP/1.1", 201, "Created", [], "")
             case _:
                 response = Response("HTTP/1.1", 404, "Not Found", [], "")
 
