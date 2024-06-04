@@ -1,7 +1,14 @@
 import asyncio
 import socket
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Tuple
+
+import click as click
+
+
+class App:
+    directory: Path
 
 
 @dataclass(slots=True)
@@ -33,6 +40,11 @@ class Response:
         return f"{self.version} {self.status} {self.message}\r\n{headers}\r\n\r\n{self.body or ''}".encode()
 
 
+def read_file(filename: str):
+    path = App.directory / filename
+    return path.read_text()
+
+
 async def handler(client_socket):
     loop = asyncio.get_running_loop()
     try:
@@ -51,6 +63,9 @@ async def handler(client_socket):
             case ("", "user-agent"):
                 headers = dict(request.headers)
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
+            case ("", "files", filename):
+                content = read_file(filename)
+                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "application/octet-stream")], content)
             case _:
                 response = Response("HTTP/1.1", 404, "Not Found", [], "")
 
@@ -91,5 +106,12 @@ def parse_request(raw_request: bytes) -> Request:
     return Request(method.decode(), path.decode(), version.decode(), headers, body.decode())
 
 
-if __name__ == "__main__":
+@click.command
+@click.argument("--directory", type=click.Path)
+def start_server(directory):
+    App.directory = Path(directory)
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    start_server()
