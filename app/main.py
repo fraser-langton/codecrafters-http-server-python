@@ -50,6 +50,9 @@ def main():
                     response = Response("HTTP/1.1", 200, "OK", [], "")
                 case ("", "echo", var):
                     response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], var)
+                case ("", "user-agent"):
+                    headers = dict(request.headers)
+                    response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
                 case _:
                     response = Response("HTTP/1.1", 404, "Not Found", [], "")
             print("Sending response", response)
