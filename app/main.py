@@ -64,8 +64,11 @@ async def handler(client_socket):
                 headers = dict(request.headers)
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
             case ("", "files", filename):
-                content = read_file(filename)
-                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "application/octet-stream")], content)
+                try:
+                    content = read_file(filename)
+                    response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "application/octet-stream")], content)
+                except FileNotFoundError:
+                    response = Response("HTTP/1.1", 404, "Not Found", [], "")
             case _:
                 response = Response("HTTP/1.1", 404, "Not Found", [], "")
 
@@ -107,9 +110,9 @@ def parse_request(raw_request: bytes) -> Request:
 
 
 @click.command
-@click.argument("--directory", type=click.Path)
+@click.option("--directory", )
 def start_server(directory):
-    App.directory = Path(directory)
+    App.directory = Path(directory) if directory else Path.cwd()
     asyncio.run(main())
 
 
