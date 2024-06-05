@@ -9,7 +9,7 @@ import click as click
 
 class App:
     directory: Path
-    encoding = ["gzip"]
+    encoding = {"gzip"}
 
 
 @dataclass(slots=True)
@@ -19,6 +19,9 @@ class Request:
     version: str
     headers: List[Tuple[str, str]]
     body: Optional[str]
+
+    def __post_init__(self):
+        self.headers = [(k.lower(), v.lower()) for k, v in self.headers]
 
     @property
     def path_parts(self):
@@ -34,7 +37,8 @@ class Response:
     body: str
 
     def __post_init__(self):
-        self.headers.append(("Content-Length", str(len(self.body.encode()))))
+        self.headers.append(("content-length", str(len(self.body.encode()))))
+        self.headers = [(k.lower(), v.lower()) for k, v in self.headers]
 
     def raw(self) -> bytes:
         headers = "\r\n".join([f"{k}:{v}" for k, v in self.headers])
@@ -66,16 +70,17 @@ async def handler(client_socket):
             case "GET", ("", ""):
                 response = Response("HTTP/1.1", 200, "OK", [], "")
             case "GET", ("", "echo", var):
-                response_headers = [("Content-Type", "text/plain")]
-                if headers.get("Accept-Encoding") in App.encoding:
-                    response_headers.append(("Content-Encoding", headers["Accept-Encoding"]))
+                response_headers = [("content-type", "text/plain")]
+                encoding = set(headers.get("accept-encoding", "").split(", ")) & App.encoding
+                if encoding:
+                    response_headers.append(("content-encoding", next(iter(encoding))))
                 response = Response("HTTP/1.1", 200, "OK", response_headers, var)
             case "GET", ("", "user-agent"):
-                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
+                response = Response("HTTP/1.1", 200, "OK", [("content-type", "text/plain")], headers["user-agent"])
             case "GET", ("", "files", filename):
                 try:
                     content = read_file(filename)
-                    response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "application/octet-stream")], content)
+                    response = Response("HTTP/1.1", 200, "OK", [("content-type", "application/octet-stream")], content)
                 except FileNotFoundError:
                     response = Response("HTTP/1.1", 404, "Not Found", [], "")
             case "POST", ("", "files", filename):
