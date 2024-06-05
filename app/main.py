@@ -1,6 +1,8 @@
 import asyncio
+import gzip
 import socket
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -13,15 +15,23 @@ class App:
 
 
 @dataclass(slots=True)
-class Request:
-    method: str
-    path: str
-    version: str
+class Headers:
     headers: List[Tuple[str, str]]
-    body: Optional[str]
 
     def __post_init__(self):
         self.headers = [(k.lower(), v.lower()) for k, v in self.headers]
+
+    @property
+    def headers_dict(self) -> dict:
+        return {k: v for k, v in self.headers}
+
+
+@dataclass(slots=True)
+class Request(Headers):
+    method: str
+    path: str
+    version: str
+    body: Optional[str]
 
     @property
     def path_parts(self):
@@ -29,20 +39,31 @@ class Request:
 
 
 @dataclass(slots=True)
-class Response:
+class Response(Headers):
     version: str
     status: int
     message: str
-    headers: List[Tuple[str, str]]
     body: str
+    request: Request
 
-    def __post_init__(self):
-        self.headers.append(("content-length", str(len(self.body.encode()))))
-        self.headers = [(k.lower(), v.lower()) for k, v in self.headers]
+    def encode_body(self) -> bytes:
+        encodings = set(self.request.headers_dict.get("accept-encoding", "").split(", ")) & App.encoding
+        encoding = next(iter(encodings), None)
+        if encoding:
+            self.headers.append(("content-encoding", encoding))
+            if encoding == "gzip":
+                body = gzip.compress(self.body.encode())
+            else:
+                raise NotImplementedError
+        else:
+            body = self.body.encode()
+        return body
 
     def raw(self) -> bytes:
+        body = self.encode_body()
+        self.headers.append(("content-length", str(len(body))))
         headers = "\r\n".join([f"{k}:{v}" for k, v in self.headers])
-        return f"{self.version} {self.status} {self.message}\r\n{headers}\r\n\r\n{self.body or ''}".encode()
+        return f"{self.version} {self.status} {self.message}\r\n{headers}\r\n\r\n".encode() + body
 
 
 def read_file(filename: str):
@@ -65,29 +86,28 @@ async def handler(client_socket):
         request = parse_request(data)
         print("Got request", request)
         path_parts = request.path_parts
-        headers = dict(request.headers)
+        make_response = partial(Response, request=request, version="HTTP/1.1")
         match (request.method, path_parts):
             case "GET", ("", ""):
-                response = Response("HTTP/1.1", 200, "OK", [], "")
+                response = make_response(status=200, message="OK", headers=[], body="")
             case "GET", ("", "echo", var):
                 response_headers = [("content-type", "text/plain")]
-                encoding = set(headers.get("accept-encoding", "").split(", ")) & App.encoding
-                if encoding:
-                    response_headers.append(("content-encoding", next(iter(encoding))))
-                response = Response("HTTP/1.1", 200, "OK", response_headers, var)
+                response = make_response(status=200, message="OK", headers=response_headers, body=var)
             case "GET", ("", "user-agent"):
-                response = Response("HTTP/1.1", 200, "OK", [("content-type", "text/plain")], headers["user-agent"])
+                response = make_response(status=200, message="OK", headers=[("content-type", "text/plain")],
+                                         body=request.headers_dict["user-agent"])
             case "GET", ("", "files", filename):
                 try:
                     content = read_file(filename)
-                    response = Response("HTTP/1.1", 200, "OK", [("content-type", "application/octet-stream")], content)
+                    response = make_response(status=200, message="OK",
+                                             headers=[("content-type", "application/octet-stream")], body=content)
                 except FileNotFoundError:
-                    response = Response("HTTP/1.1", 404, "Not Found", [], "")
+                    response = make_response(status=404, message="Not Found", headers=[], body="")
             case "POST", ("", "files", filename):
                 write_file(filename, request.body)
-                response = Response("HTTP/1.1", 201, "Created", [], "")
+                response = make_response(status=201, message="Created", headers=[], body="")
             case _:
-                response = Response("HTTP/1.1", 404, "Not Found", [], "")
+                response = make_response(status=404, message="Not Found", headers=[], body="")
 
         print("Sending response", response)
         await loop.sock_sendall(client_socket, response.raw())
@@ -123,7 +143,8 @@ def parse_request(raw_request: bytes) -> Request:
         i = ni
 
     body = raw_request[ni + 2:]
-    return Request(method.decode(), path.decode(), version.decode(), headers, body.decode())
+    return Request(method=method.decode(), path=path.decode(), version=version.decode(), headers=headers,
+                   body=body.decode())
 
 
 @click.command
