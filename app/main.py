@@ -66,10 +66,12 @@ async def handler(client_socket):
             case "GET", ("", ""):
                 response = Response("HTTP/1.1", 200, "OK", [], "")
             case "GET", ("", "echo", var):
-                resposne_headers = [("Content-Type", "text/plain")]
-                if headers.get("Content-Encoding") in App.encoding:
-                    resposne_headers.append(("Content-Encoding", headers["Content-Encoding"]))
-                response = Response("HTTP/1.1", 200, "OK", resposne_headers, var)
+                response_headers = [("Content-Type", "text/plain")]
+                if headers.get("Accept-Encoding") in App.encoding:
+                    response_headers.append(("Content-Encoding", headers["Accept-Encoding"]))
+                else:
+                    response_headers.append(("Content-Encoding", "invalid-encoding"))
+                response = Response("HTTP/1.1", 200, "OK", response_headers, var)
             case "GET", ("", "user-agent"):
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
             case "GET", ("", "files", filename):
