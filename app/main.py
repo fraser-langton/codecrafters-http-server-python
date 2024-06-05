@@ -9,6 +9,7 @@ import click as click
 
 class App:
     directory: Path
+    encoding = ["gzip"]
 
 
 @dataclass(slots=True)
@@ -60,13 +61,16 @@ async def handler(client_socket):
         request = parse_request(data)
         print("Got request", request)
         path_parts = request.path_parts
+        headers = dict(request.headers)
         match (request.method, path_parts):
             case "GET", ("", ""):
                 response = Response("HTTP/1.1", 200, "OK", [], "")
             case "GET", ("", "echo", var):
-                response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], var)
+                resposne_headers = [("Content-Type", "text/plain")]
+                if headers.get("Content-Encoding") in App.encoding:
+                    resposne_headers.append(("Content-Encoding", headers["Content-Encoding"]))
+                response = Response("HTTP/1.1", 200, "OK", resposne_headers, var)
             case "GET", ("", "user-agent"):
-                headers = dict(request.headers)
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
             case "GET", ("", "files", filename):
                 try:
