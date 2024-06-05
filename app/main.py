@@ -69,8 +69,6 @@ async def handler(client_socket):
                 response_headers = [("Content-Type", "text/plain")]
                 if headers.get("Accept-Encoding") in App.encoding:
                     response_headers.append(("Content-Encoding", headers["Accept-Encoding"]))
-                else:
-                    response_headers.append(("Content-Encoding", "invalid-encoding"))
                 response = Response("HTTP/1.1", 200, "OK", response_headers, var)
             case "GET", ("", "user-agent"):
                 response = Response("HTTP/1.1", 200, "OK", [("Content-Type", "text/plain")], headers["User-Agent"])
